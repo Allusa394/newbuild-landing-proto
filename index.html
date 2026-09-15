@@ -285,6 +285,10 @@
   @media (max-width: 960px) { .about-grid { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 620px) { .about-grid { grid-template-columns: 1fr; } }
 
+  .shot { margin: 0 0 26px; }
+  .shot img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--r); }
+  .shot figcaption { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
+
   /* ── Ход строительства ──────────────────────────────── */
   .progress { background: var(--bg-alt); }
   .bld-list { display: flex; flex-direction: column; gap: 14px; }
@@ -419,7 +423,7 @@
     <div class="hero__media" aria-hidden="true">
       <picture>
         <source srcset="img/hero.webp" type="image/webp">
-        <img src="img/hero.jpg" alt="" width="1200" height="860" loading="eager">
+        <img src="img/hero.jpg" alt="" width="1600" height="900" loading="eager">
       </picture>
     </div>
     <div class="wrap hero__in">
@@ -598,6 +602,14 @@
         <h2 class="sec-title">Что внутри квартала</h2>
         <p class="sec-lead">Комплекс закрытый: машины уходят в подземный паркинг у въезда, дальше только пешеходные дорожки.</p>
       </div>
+      <figure class="shot">
+        <picture>
+          <source srcset="img/yard.webp" type="image/webp">
+          <img src="img/yard.jpg" alt="Двор комплекса вечером: подсвеченные дорожки, детская площадка, скамейки" width="1100" height="619" loading="lazy">
+        </picture>
+        <figcaption>Двор между корпусами, вечернее освещение по всем дорожкам</figcaption>
+      </figure>
+
       <div class="about-grid">
         <article class="ab ab--forest">
           <h3>Двор без машин</h3>
@@ -636,6 +648,14 @@
         <h2 class="sec-title">Как идёт стройка</h2>
         <p class="sec-lead">Обновляем после каждого этапа, фотоотчёт публикуем первого числа. Данные на 1 сентября 2026 года.</p>
       </div>
+      <figure class="shot">
+        <picture>
+          <source srcset="img/build.webp" type="image/webp">
+          <img src="img/build.jpg" alt="Монолитный каркас корпуса и башенный кран на площадке" width="1100" height="619" loading="lazy">
+        </picture>
+        <figcaption>Корпус 1, сентябрь 2026: монолит завершён, идёт фасад</figcaption>
+      </figure>
+
       <div class="bld-list">
 
         <article class="bld">
