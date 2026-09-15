@@ -40,8 +40,16 @@ function annuity(price, downPct, yearsN, ratePct) {
 
   // картинки
   await page.evaluate(async () => { await new Promise(res => { let y = 0; const s = () => { window.scrollBy(0, 900); y += 900; if (y < document.body.scrollHeight) setTimeout(s, 90); else res(); }; s(); }); });
-  await new Promise(r => setTimeout(r, 1000));
-  const broken = await page.evaluate(() => [...document.images].filter(i => !i.complete || i.naturalWidth === 0).map(i => i.currentSrc || i.src));
+  // ждём фактической загрузки, а не «столько-то секунд»: на живой ссылке
+  // снимки весят сотни килобайт и приезжают позже фиксированной паузы
+  const broken = await page.evaluate(async () => {
+    const deadline = Date.now() + 15000;
+    const pending = () => [...document.images].filter(i => !i.complete || i.naturalWidth === 0);
+    while (pending().length && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+    return pending().map(i => i.currentSrc || i.src);
+  });
   check('Все картинки загрузились', broken.length === 0, broken.join(', '));
 
   // якоря
