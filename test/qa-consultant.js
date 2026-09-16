@@ -70,6 +70,103 @@ function check(name, ok, detail = '') {
     check('в ответе нет markdown-звёздочек', !/\*\s/.test(text));
   }
 
+  // ——— Голос ———
+  const micVisible = await page.$eval('.tc-mic', (el) => !el.hidden).catch(() => false);
+  check('кнопка микрофона показана', micVisible);
+
+  const speak = await page.$eval('#tcSpeak', (el) => ({ hidden: el.hidden, pressed: el.getAttribute('aria-pressed') }));
+  check('озвучка по умолчанию выключена', speak.pressed === 'false');
+
+  await page.click('#tcSpeak');
+  const speakOn = await page.$eval('#tcSpeak', (el) => el.getAttribute('aria-pressed'));
+  check('озвучка включается кнопкой', speakOn === 'true');
+  await page.click('#tcSpeak');
+
+  // Настоящий микрофон в headless-браузере недоступен, поэтому подменяем
+  // распознаватель заглушкой и прогоняем тот же путь, что у живого клиента:
+  // нажал микрофон → произнёс → текст оказался в поле, но не улетел сам.
+  const dictated = await page.evaluate(() => {
+    let inst = null;
+    window.SpeechRecognition = function () {
+      inst = this;
+      this.start = function () {};
+      this.stop = function () { if (this.onend) this.onend(); };
+    };
+    window.webkitSpeechRecognition = window.SpeechRecognition;
+    window.__tcSpoken = function (text) {
+      if (!inst || !inst.onresult) return '__распознаватель не создан__';
+      const results = [Object.assign([{ transcript: text }], { isFinal: true })];
+      inst.onresult({ resultIndex: 0, results });
+      inst.stop();
+      return document.querySelector('#tcInput').value;
+    };
+    return true;
+  });
+  check('заглушка распознавателя установлена', dictated === true);
+
+  // Виджет читает SpeechRecognition при загрузке, поэтому перезагружаем страницу
+  // с уже подменённым распознавателем.
+  await page.evaluate(() => sessionStorage.removeItem('topolinyy-chat'));
+  await page.evaluateOnNewDocument(() => {
+    let inst = null;
+    const Fake = function () {
+      inst = this;
+      this.start = function () {};
+      this.stop = function () { if (this.onend) this.onend(); };
+    };
+    window.SpeechRecognition = Fake;
+    window.webkitSpeechRecognition = Fake;
+    window.__tcSpoken = function (text) {
+      if (!inst || !inst.onresult) return '__распознаватель не создан__';
+      const results = [Object.assign([{ transcript: text }], { isFinal: true })];
+      inst.onresult({ resultIndex: 0, results });
+      inst.stop();
+      return document.querySelector('#tcInput').value;
+    };
+  });
+  await page.reload({ waitUntil: 'networkidle2' });
+  await page.click('.tc-btn');
+  await new Promise((r) => setTimeout(r, 300));
+  await page.click('.tc-mic');
+  await new Promise((r) => setTimeout(r, 200));
+
+  const heard = await page.evaluate(() => window.__tcSpoken('двушку до девяти миллионов'));
+  check('сказанное попадает в поле ввода', heard === 'двушку до девяти миллионов', heard);
+
+  const sentBySelf = await page.$$eval('.tc-msg.tc-me', (els) => els.length);
+  check('сказанное не отправляется само, человек может поправить', sentBySelf === 0, `отправлено сообщений: ${sentBySelf}`);
+
+  const recOff = await page.$eval('.tc-mic', (el) => el.classList.contains('rec'));
+  check('после распознавания запись выключается', !recOff);
+
+  // Отказ в доступе к микрофону — обычное дело, виджет не должен ломаться.
+  // Проверяем на отдельной вкладке: там нет встроенного распознавания,
+  // поэтому виджет идёт вторым путём — через запись звука, а её запрещают.
+  const denyPage = await browser.newPage();
+  await denyPage.evaluateOnNewDocument(() => {
+    delete window.SpeechRecognition;
+    delete window.webkitSpeechRecognition;
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: () => Promise.reject(Object.assign(new Error('denied'), { name: 'NotAllowedError' })),
+      },
+    });
+  });
+  await denyPage.goto(URL, { waitUntil: 'networkidle2' });
+  await denyPage.click('.tc-btn');
+  await new Promise((r) => setTimeout(r, 300));
+
+  const micShown = await denyPage.$eval('.tc-mic', (el) => !el.hidden);
+  check('микрофон предлагается и без встроенного распознавания', micShown);
+
+  await denyPage.click('.tc-mic');
+  await new Promise((r) => setTimeout(r, 900));
+  const afterDeny = await denyPage.$eval('.tc-log', (el) => el.textContent);
+  check('отказ в микрофоне объясняется человеку', /микрофон/i.test(afterDeny), afterDeny.slice(-90));
+  check('после отказа запись не считается идущей', !(await denyPage.$eval('.tc-mic', (el) => el.classList.contains('rec'))));
+  await denyPage.close();
+
   // ——— Безопасность ———
   const html = await page.content();
   check('ключа модели нет в коде страницы', !/AIza[\w-]{20,}|gsk_[\w]{20,}/.test(html));

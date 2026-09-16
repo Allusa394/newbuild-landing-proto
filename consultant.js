@@ -5,9 +5,11 @@
 (function () {
   'use strict';
 
-  var API = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-    ? 'http://localhost:3000/api/chat'
-    : 'https://newbuild-sales-agent.vercel.app/api/chat';
+  var HOST = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    ? 'http://localhost:3000'
+    : 'https://newbuild-sales-agent.vercel.app';
+  var API = HOST + '/api/chat';
+  var VOICE_API = HOST + '/api/voice';
 
   var STORE = 'topolinyy-chat';
   var MAX_STORED = 30;
@@ -80,6 +82,24 @@
     + '.tc-send{flex:none;width:46px;border:0;border-radius:10px;background:#1F3D34;color:#F4F1EA;cursor:pointer;font-size:17px}'
     + '.tc-send:disabled{opacity:.45;cursor:default}'
     + '.tc-send:focus-visible{outline:2px solid #C99A4B;outline-offset:2px}'
+    + '.tc-mic{flex:none;width:46px;border:1px solid rgba(22,34,30,.18);border-radius:10px;background:#fff;'
+    + 'color:#1F3D34;cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center}'
+    + '.tc-mic:hover{border-color:#1F3D34}'
+    + '.tc-mic:focus-visible{outline:2px solid #C99A4B;outline-offset:2px}'
+    + '.tc-mic[hidden]{display:none}'
+    + '.tc-mic.rec{background:#8C2F2F;border-color:#8C2F2F;color:#fff;animation:tcpulse 1.3s infinite}'
+    + '@keyframes tcpulse{0%,100%{box-shadow:0 0 0 0 rgba(140,47,47,.5)}50%{box-shadow:0 0 0 7px rgba(140,47,47,0)}}'
+    + '.tc-mic:disabled{opacity:.45;cursor:default;animation:none}'
+    + '.tc-voice{margin-left:auto;display:flex;gap:6px;align-items:center}'
+    + '.tc-speak{width:34px;height:34px;flex:none;border:0;border-radius:9px;cursor:pointer;'
+    + 'background:rgba(244,241,234,.12);color:#F4F1EA;font-size:15px;line-height:1}'
+    + '.tc-speak:hover{background:rgba(244,241,234,.22)}'
+    + '.tc-speak.on{background:#C99A4B;color:#16221E}'
+    + '.tc-speak:focus-visible{outline:2px solid #E7C37B;outline-offset:2px}'
+    + '.tc-rec{padding:0 18px 10px;font-size:12.5px;color:#8C2F2F;background:#F4F1EA;display:flex;align-items:center;gap:7px}'
+    + '.tc-rec[hidden]{display:none}'
+    + '.tc-rec i{width:8px;height:8px;border-radius:50%;background:#8C2F2F;animation:tcblink 1s infinite}'
+    + '@keyframes tcblink{0%,100%{opacity:1}50%{opacity:.25}}'
     + '.tc-note{padding:0 18px 12px;font-size:11.5px;color:#8E9A94;background:#F4F1EA}'
     + '.tc-typing{display:flex;gap:4px;align-items:center;padding:12px 15px}'
     + '.tc-typing i{width:6px;height:6px;border-radius:50%;background:#8E9A94;animation:tcb 1.1s infinite}'
@@ -107,11 +127,16 @@
   panel.innerHTML = ''
     + '<div class="tc-head"><div><h3>Консультант отдела продаж</h3>'
     + '<p>Подберу квартиру и посчитаю ипотеку</p></div>'
-    + '<button class="tc-x" type="button" aria-label="Закрыть чат">×</button></div>'
+    + '<div class="tc-voice">'
+    + '<button class="tc-speak" id="tcSpeak" type="button" aria-pressed="false" '
+    + 'title="Озвучивать ответы голосом" aria-label="Озвучивать ответы голосом">🔈</button>'
+    + '<button class="tc-x" type="button" aria-label="Закрыть чат">×</button></div></div>'
     + '<div class="tc-log" id="tcLog" role="log" aria-live="polite"></div>'
     + '<div class="tc-hint" id="tcHint"></div>'
+    + '<p class="tc-rec" id="tcRec" hidden><i aria-hidden="true"></i><span id="tcRecText">Говорите, я слушаю</span></p>'
     + '<p class="tc-note">Демонстрация возможностей. Расчёты предварительные, не оферта.</p>'
     + '<form class="tc-form" id="tcForm">'
+    + '<button class="tc-mic" id="tcMic" type="button" aria-label="Сказать голосом" title="Сказать голосом" hidden>🎤</button>'
     + '<input id="tcInput" type="text" autocomplete="off" placeholder="Двушку до 9 миллионов" aria-label="Ваш вопрос">'
     + '<button class="tc-send" type="submit" aria-label="Отправить">→</button></form>';
 
@@ -233,6 +258,7 @@
         bubble('assistant', data.text || 'Не удалось ответить. Позвоните в отдел продаж.');
         state.history.push({ role: 'assistant', content: data.text || '' });
         save();
+        say(data.text);
       })
       .catch(function () {
         dots.remove();
@@ -244,6 +270,204 @@
         input.focus();
       });
   }
+
+  // ——— Голос: клиент говорит, а не печатает ————————————————
+  // Где браузер умеет распознавать сам (Chrome, Edge, Safari) — пользуемся им:
+  // это мгновенно и бесплатно. Где не умеет (Firefox, часть айфонов) — пишем
+  // звук и отправляем на сервер в Whisper. Для человека разницы нет.
+
+  var mic = panel.querySelector('#tcMic');
+  var recBar = panel.querySelector('#tcRec');
+  var recText = panel.querySelector('#tcRecText');
+  var speakBtn = panel.querySelector('#tcSpeak');
+
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var canRecord = !!(navigator.mediaDevices && window.MediaRecorder);
+  var recognizer = null;
+  var recorder = null;
+  var chunks = [];
+  var recording = false;
+
+  if (SR || canRecord) mic.hidden = false;
+
+  function showRec(on, text) {
+    recBar.hidden = !on;
+    if (text) recText.textContent = text;
+    mic.classList.toggle('rec', on);
+    mic.setAttribute('aria-label', on ? 'Остановить запись' : 'Сказать голосом');
+  }
+
+  function putText(text) {
+    if (!text) return;
+    // Не отправляем сразу: распознавание ошибается на цифрах, а тут всё про цифры.
+    input.value = text;
+    input.focus();
+  }
+
+  function micProblem(err) {
+    var name = err && err.name;
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      return 'Браузер не дал доступ к микрофону. Разрешите его в адресной строке или напишите вопрос текстом.';
+    }
+    if (name === 'NotFoundError') return 'Микрофон не найден. Напишите вопрос текстом.';
+    return 'Не получилось записать голос. Напишите вопрос текстом.';
+  }
+
+  function startBrowser() {
+    recognizer = new SR();
+    recognizer.lang = 'ru-RU';
+    recognizer.interimResults = true;
+    recognizer.continuous = false;
+
+    var finalText = '';
+    recognizer.onresult = function (e) {
+      var interim = '';
+      for (var i = e.resultIndex; i < e.results.length; i += 1) {
+        var res = e.results[i];
+        if (res.isFinal) finalText += res[0].transcript;
+        else interim += res[0].transcript;
+      }
+      input.value = (finalText + interim).trim();
+      if (interim) recText.textContent = 'Слышу: ' + interim.trim().slice(0, 40);
+    };
+    recognizer.onerror = function (e) {
+      recording = false;
+      showRec(false);
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        bubble('assistant', 'Браузер не дал доступ к микрофону. Разрешите его в адресной строке или напишите вопрос текстом.');
+      } else if (e.error === 'no-speech') {
+        bubble('assistant', 'Я ничего не услышал. Попробуйте ещё раз или напишите текстом.');
+      }
+    };
+    recognizer.onend = function () {
+      recording = false;
+      showRec(false);
+      putText(input.value.trim());
+    };
+
+    try {
+      recognizer.start();
+      recording = true;
+      showRec(true, 'Говорите, я слушаю');
+    } catch (err) {
+      recording = false;
+      showRec(false);
+      bubble('assistant', micProblem(err));
+    }
+  }
+
+  function startRecorder() {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function (stream) {
+        var mime = '';
+        ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].some(function (m) {
+          if (window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(m)) { mime = m; return true; }
+          return false;
+        });
+
+        recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+        chunks = [];
+
+        recorder.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onstop = function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          showRec(true, 'Распознаю…');
+          mic.disabled = true;
+
+          var blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+          var reader = new FileReader();
+          reader.onloadend = function () {
+            var base64 = String(reader.result).split(',')[1] || '';
+            fetch(VOICE_API, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ audio: base64, mime: blob.type }),
+            })
+              .then(function (r) { return r.json(); })
+              .then(function (data) {
+                if (data.text) putText(data.text);
+                else bubble('assistant', 'Не разобрал запись. Скажите ещё раз или напишите текстом.');
+              })
+              .catch(function () {
+                bubble('assistant', 'Не получилось распознать голос. Напишите вопрос текстом.');
+              })
+              .finally(function () {
+                mic.disabled = false;
+                showRec(false);
+              });
+          };
+          reader.readAsDataURL(blob);
+        };
+
+        recorder.start();
+        recording = true;
+        showRec(true, 'Говорите, потом нажмите ещё раз');
+
+        // Страховка: запись не должна идти бесконечно, если человек забыл остановить.
+        setTimeout(function () { if (recording) stopVoice(); }, 60000);
+      })
+      .catch(function (err) {
+        recording = false;
+        showRec(false);
+        bubble('assistant', micProblem(err));
+      });
+  }
+
+  function startVoice() {
+    if (recording) return;
+    stopSpeaking();
+    if (SR) startBrowser();
+    else if (canRecord) startRecorder();
+  }
+
+  function stopVoice() {
+    if (!recording) return;
+    recording = false;
+    if (recognizer) { try { recognizer.stop(); } catch (e) { /* уже остановлено */ } }
+    else if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch (e) { /* уже остановлено */ } }
+    else showRec(false);
+  }
+
+  mic.addEventListener('click', function () {
+    if (recording) stopVoice(); else startVoice();
+  });
+
+  // ——— Озвучка ответов (по желанию, выключена по умолчанию) ——
+
+  var canSpeak = 'speechSynthesis' in window;
+  var speakOn = false;
+  try { speakOn = localStorage.getItem('tc-speak') === '1'; } catch (e) { /* приватный режим */ }
+  if (!canSpeak) speakBtn.hidden = true;
+
+  function paintSpeak() {
+    speakBtn.classList.toggle('on', speakOn);
+    speakBtn.setAttribute('aria-pressed', speakOn ? 'true' : 'false');
+    speakBtn.textContent = speakOn ? '🔊' : '🔈';
+  }
+  paintSpeak();
+
+  function stopSpeaking() {
+    if (canSpeak) { try { window.speechSynthesis.cancel(); } catch (e) { /* не критично */ } }
+  }
+
+  function say(text) {
+    if (!speakOn || !canSpeak || !text) return;
+    stopSpeaking();
+    var u = new SpeechSynthesisUtterance(text.replace(/<[^>]+>/g, '').slice(0, 600));
+    u.lang = 'ru-RU';
+    u.rate = 1.02;
+    var voices = window.speechSynthesis.getVoices() || [];
+    var ru = voices.filter(function (v) { return /ru[-_]/i.test(v.lang); })[0];
+    if (ru) u.voice = ru;
+    window.speechSynthesis.speak(u);
+  }
+
+  speakBtn.addEventListener('click', function () {
+    speakOn = !speakOn;
+    try { localStorage.setItem('tc-speak', speakOn ? '1' : '0'); } catch (e) { /* не критично */ }
+    if (!speakOn) stopSpeaking();
+    paintSpeak();
+  });
 
   // ——— Открытие и закрытие ——————————————————————————————————
 
@@ -267,6 +491,9 @@
     state.open = false;
     panel.hidden = true;
     btn.hidden = false;
+    // Закрыли окно — микрофон не должен продолжать слушать, а голос говорить.
+    stopVoice();
+    stopSpeaking();
     btn.focus();
   }
 
