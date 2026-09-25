@@ -1,5 +1,35 @@
 # Прогресс: лендинг новостройки с ипотечным калькулятором
 
+## СЕЙЧАС (25.09.2026): hero-морфинг «стройка → готовый ЖК»
+
+Лендинг опубликован, план ниже — старый. Не сделано только видео в первом экране.
+
+Схема: конечный кадр = уже стоящая в hero картинка `img/hero.jpg`
+(копия для Аллы: `C:\Users\alusa\Downloads\zhk-finish-hero.jpg`), начальный кадр
+«стройка» генерится из неё редактированием. Делает Алла в Google Flow (Veo 3.1
+Quality, 16:9, 8 сек, режим «Кадры»). Как пройти по новому интерфейсу Flow —
+jarvis/knowledge/вайбкодинг-лендинг-инструкция.md, раздел «Альтернатива Kling».
+
+Остановились: Алла во Flow, на шаге загрузки кадров. Картинку давала ей через буфер обмена.
+
+Дальше (моё, после её MP4 и её «да»):
+1. Сжать MP4 под веб, положить в `img/`
+2. В `.hero__media` — `<video muted playsinline autoplay preload="metadata" poster="img/hero.jpg">`, один проигрыш, по `ended` стоп на последнем кадре, без лупа
+3. `prefers-reduced-motion` → только картинка
+4. Проверка: `NODE_PATH=<veritas>/node_modules node test/qa-consultant.js <url>` + мобильный, медленная сеть, видео не загрузилось
+5. После лендинга — объявление на Авито (см. дневник jarvis 25.09, сессия 3)
+
+Промт кадра «до» (к нему прикрепить hero.jpg):
+```
+Edit this image. Keep exactly the same camera angle, horizon, perspective, sunset lighting and sky. Turn the finished residential complex into an active construction site: the three buildings stand in the same places with the same heights and outlines, but as bare grey concrete monolithic frames — open floor slabs, columns, no facades, no windows, partial scaffolding and green safety netting. Two yellow tower cranes next to the buildings. Instead of the landscaped courtyard: bare levelled earth, sand, puddles, stacks of rebar and concrete blocks, a construction fence. No trees, no flowers, no people. Keep the left side of the frame open for text overlay. Photorealistic, 16:9.
+```
+
+Промт видео (start = стройка, end = hero.jpg):
+```
+Construction time-lapse of a residential complex, from building site to finished homes. Locked-off static camera, no camera movement. The concrete frames fill in floor by floor: facades and windows appear, scaffolding and safety netting disappear, the tower cranes lower and vanish. Then the ground transforms: paths get paved, lawns and flowerbeds grow, young trees rise, benches and a playground appear. Smooth continuous transformation, sunset light stays constant. Photorealistic, no people, no text.
+```
+Негатив: `camera shake, zoom, camera movement, people, text, watermark, flicker, warped buildings`
+
 ## Что это
 Четвёртый прототип витрины Аллы, ниша «недвижимость: новостройки».
 Заказан 13.09.2026 вместе с автосервисом. Ниши нет в бэклоге 29 —
