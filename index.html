@@ -114,7 +114,15 @@
 
   /* морфинг «стройка → готовый двор»: видео вертикальное, поэтому только на телефоне */
   .hero__video { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  @media (max-width: 720px) { .hero.is-morph .hero__video { display: block; } }
+  @media (max-width: 720px) {
+    .hero.is-morph .hero__video { display: block; }
+    /* пока идёт морфинг, первый экран на всю высоту телефона, а подложка
+       тёмная только под текстом — иначе стройка и двор прячутся за ней */
+    .hero.is-morph { min-height: calc(100svh - 74px); }
+    .hero.is-morph .hero__media::after {
+      background: linear-gradient(to top, rgba(14,28,24,.94) 30%, rgba(14,28,24,.66) 54%, rgba(14,28,24,.14) 74%, rgba(14,28,24,0) 100%);
+    }
+  }
 
   /* затемнение слева, чтобы текст читался поверх снимка */
   .hero__media::after {
