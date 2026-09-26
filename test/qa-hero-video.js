@@ -5,9 +5,10 @@
  *          node test/qa-hero-video.js https://...         — живая ссылка
  *          SHOTS=<папка> node test/qa-hero-video.js ...   — плюс скриншоты начала и конца
  *
- * Что должно быть: на телефоне видео играет один раз и замирает на готовом
- * дворе; на компьютере и во всех случаях отказа видео не скачивается или
- * прячется, и остаётся обычная картинка.
+ * Что должно быть: телефон (до 720px) играет вертикальный ролик, всё шире —
+ * горизонтальный; каждый качает только свой. Один проигрыш, стоп на готовом
+ * дворе. Анимация отключена, экономия трафика, файл не загрузился, автоплей
+ * запрещён — видео не скачивается или прячется, остаётся обычная картинка.
  */
 
 const puppeteer = require('C:/Users/alusa/OneDrive/Documents/Документы/projects/veritas-landing-proto/node_modules/puppeteer');
@@ -51,7 +52,7 @@ async function open(browser, url, viewport, opt = {}) {
   await page.setRequestInterception(true);
   page.on('request', req => {
     if (req.url().includes('hero-morph')) videoRequests.push(req.url());
-    if (opt.blockVideo && req.url().includes('hero-morph.mp4')) return req.abort();
+    if (opt.blockVideo && /hero-morph(-wide)?\.mp4/.test(req.url())) return req.abort();
     req.continue();
   });
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -65,7 +66,7 @@ const state = page => page.evaluate(() => {
   return {
     morph: hero.classList.contains('is-morph'),
     shown: getComputedStyle(v).display !== 'none',
-    t: v.currentTime, dur: v.duration, paused: v.paused, ended: v.ended, loop: v.loop,
+    src: v.currentSrc, t: v.currentTime, dur: v.duration, paused: v.paused, ended: v.ended, loop: v.loop,
     imgOk: img.complete && img.naturalWidth > 0,
     hScroll: document.documentElement.scrollWidth > window.innerWidth,
   };
@@ -81,34 +82,44 @@ const state = page => page.evaluate(() => {
   if (fs.existsSync(CHROME)) opts.executablePath = CHROME;
   const browser = await puppeteer.launch(opts);
 
-  // 1. Телефон: видео играет один раз и замирает на последнем кадре
-  {
-    const { page, errors } = await open(browser, url, PHONE);
+  const PHONE_FILE = 'hero-morph.mp4';
+  const WIDE_FILE = 'hero-morph-wide.mp4';
+
+  // 1-4. Видео играет один раз и замирает на последнем кадре, каждый экран — свой ролик
+  const plays = [
+    ['Телефон 390×844', PHONE, PHONE_FILE, WIDE_FILE, 'phone'],
+    ['Компьютер 1440×900', { width: 1440, height: 900 }, WIDE_FILE, PHONE_FILE, 'desktop'],
+    ['Планшет 768×1024', { width: 768, height: 1024, isMobile: true, hasTouch: true }, WIDE_FILE, PHONE_FILE, ''],
+    ['Телефон боком 844×390', { width: 844, height: 390, isMobile: true, hasTouch: true }, WIDE_FILE, PHONE_FILE, ''],
+  ];
+  for (const [name, viewport, file, other, shot] of plays) {
+    const { page, errors, videoRequests } = await open(browser, url, viewport);
     await wait(900);
     let s = await state(page);
-    check('Телефон: морфинг включился', s.morph && s.shown);
-    check('Телефон: видео играет', !s.paused && s.t > 0, `t=${s.t.toFixed(2)}`);
-    check('Телефон: без повтора по кругу', !s.loop);
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'phone-start.png') });
-    if (SHOTS) {
+    check(`${name}: морфинг включился`, s.morph && s.shown);
+    check(`${name}: играет свой ролик`, path.basename(s.src || '') === file, path.basename(s.src || '—'));
+    check(`${name}: чужой ролик не скачивается`, !videoRequests.some(u => path.basename(u.split('?')[0]) === other));
+    check(`${name}: видео играет`, !s.paused && s.t > 0, `t=${s.t.toFixed(2)}`);
+    check(`${name}: без повтора по кругу`, !s.loop);
+    if (SHOTS && shot) await page.screenshot({ path: path.join(SHOTS, `${shot}-start.png`) });
+    if (SHOTS && shot) {
       await page.waitForFunction(() => document.querySelector('.hero__video').currentTime >= 3.5, { timeout: 10000 }).catch(() => {});
-      await page.screenshot({ path: path.join(SHOTS, 'phone-mid.png') });
+      await page.screenshot({ path: path.join(SHOTS, `${shot}-mid.png`) });
     }
     await page.waitForFunction(() => document.querySelector('.hero__video').ended, { timeout: 20000 }).catch(() => {});
     await wait(1500);
     s = await state(page);
-    check('Телефон: доиграло до конца и остановилось', s.ended && s.paused && s.t >= s.dur - 0.15, `t=${s.t.toFixed(2)} из ${(s.dur || 0).toFixed(2)}`);
-    check('Телефон: после конца видно последний кадр, а не картинку', s.morph && s.shown);
-    check('Телефон: нет горизонтального скролла', !s.hScroll);
-    check('Телефон: консоль без ошибок', errors.length === 0, errors.join(' | '));
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'phone-end.png') });
+    check(`${name}: доиграло до конца и остановилось`, s.ended && s.paused && s.t >= s.dur - 0.15, `t=${s.t.toFixed(2)} из ${(s.dur || 0).toFixed(2)}`);
+    check(`${name}: после конца виден последний кадр`, s.morph && s.shown);
+    check(`${name}: нет горизонтального скролла`, !s.hScroll);
+    check(`${name}: консоль без ошибок`, errors.length === 0, errors.join(' | '));
+    if (SHOTS && shot) await page.screenshot({ path: path.join(SHOTS, `${shot}-end.png`) });
     await page.close();
   }
 
-  // 2-5. Где видео быть не должно — не скачивается вовсе, стоит картинка
+  // 5-7. Где видео быть не должно — не скачивается вовсе, стоит картинка
   const noVideo = [
-    ['Компьютер 1440×900', { width: 1440, height: 900 }, {}],
-    ['Телефон боком 844×390', { width: 844, height: 390, isMobile: true, hasTouch: true }, {}],
+    ['Компьютер, анимация отключена в системе', { width: 1440, height: 900 }, { reducedMotion: true }],
     ['Телефон, анимация отключена в системе', PHONE, { reducedMotion: true }],
     ['Телефон, режим экономии трафика', PHONE, { saveData: true }],
   ];
@@ -119,17 +130,18 @@ const state = page => page.evaluate(() => {
     check(`${name}: видео не скачивается`, videoRequests.length === 0, videoRequests.map(u => path.basename(u)).join(', '));
     check(`${name}: видна картинка`, !s.morph && !s.shown && s.imgOk);
     check(`${name}: консоль без ошибок`, errors.length === 0, errors.join(' | '));
-    if (SHOTS && viewport.width === 1440) await page.screenshot({ path: path.join(SHOTS, 'desktop.png') });
     await page.close();
   }
 
-  // 6-7. Отказы на телефоне — вместо видео должна остаться картинка, не пустой экран
+  // 8-11. Отказы — вместо видео должна остаться картинка, не пустой экран
   const failures = [
-    ['Телефон, файл видео не загрузился', { blockVideo: true }],
-    ['Телефон, браузер запретил автозапуск', { denyAutoplay: true }],
+    ['Телефон, файл видео не загрузился', PHONE, { blockVideo: true }],
+    ['Телефон, браузер запретил автозапуск', PHONE, { denyAutoplay: true }],
+    ['Компьютер, файл видео не загрузился', { width: 1440, height: 900 }, { blockVideo: true }],
+    ['Компьютер, браузер запретил автозапуск', { width: 1440, height: 900 }, { denyAutoplay: true }],
   ];
-  for (const [name, opt] of failures) {
-    const { page, errors } = await open(browser, url, PHONE, opt);
+  for (const [name, viewport, opt] of failures) {
+    const { page, errors } = await open(browser, url, viewport, opt);
     await wait(2500);
     const s = await state(page);
     check(`${name}: видна картинка`, !s.morph && !s.shown && s.imgOk);
