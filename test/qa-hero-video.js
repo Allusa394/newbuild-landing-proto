@@ -90,6 +90,10 @@ const state = page => page.evaluate(() => {
     check('Телефон: видео играет', !s.paused && s.t > 0, `t=${s.t.toFixed(2)}`);
     check('Телефон: без повтора по кругу', !s.loop);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'phone-start.png') });
+    if (SHOTS) {
+      await page.waitForFunction(() => document.querySelector('.hero__video').currentTime >= 3.5, { timeout: 10000 }).catch(() => {});
+      await page.screenshot({ path: path.join(SHOTS, 'phone-mid.png') });
+    }
     await page.waitForFunction(() => document.querySelector('.hero__video').ended, { timeout: 20000 }).catch(() => {});
     await wait(1500);
     s = await state(page);
@@ -98,6 +102,39 @@ const state = page => page.evaluate(() => {
     check('Телефон: нет горизонтального скролла', !s.hScroll);
     check('Телефон: консоль без ошибок', errors.length === 0, errors.join(' | '));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'phone-end.png') });
+    await page.close();
+  }
+
+  // 2-5. Где видео быть не должно — не скачивается вовсе, стоит картинка
+  const noVideo = [
+    ['Компьютер 1440×900', { width: 1440, height: 900 }, {}],
+    ['Телефон боком 844×390', { width: 844, height: 390, isMobile: true, hasTouch: true }, {}],
+    ['Телефон, анимация отключена в системе', PHONE, { reducedMotion: true }],
+    ['Телефон, режим экономии трафика', PHONE, { saveData: true }],
+  ];
+  for (const [name, viewport, opt] of noVideo) {
+    const { page, errors, videoRequests } = await open(browser, url, viewport, opt);
+    await wait(2500);
+    const s = await state(page);
+    check(`${name}: видео не скачивается`, videoRequests.length === 0, videoRequests.map(u => path.basename(u)).join(', '));
+    check(`${name}: видна картинка`, !s.morph && !s.shown && s.imgOk);
+    check(`${name}: консоль без ошибок`, errors.length === 0, errors.join(' | '));
+    if (SHOTS && viewport.width === 1440) await page.screenshot({ path: path.join(SHOTS, 'desktop.png') });
+    await page.close();
+  }
+
+  // 6-7. Отказы на телефоне — вместо видео должна остаться картинка, не пустой экран
+  const failures = [
+    ['Телефон, файл видео не загрузился', { blockVideo: true }],
+    ['Телефон, браузер запретил автозапуск', { denyAutoplay: true }],
+  ];
+  for (const [name, opt] of failures) {
+    const { page, errors } = await open(browser, url, PHONE, opt);
+    await wait(2500);
+    const s = await state(page);
+    check(`${name}: видна картинка`, !s.morph && !s.shown && s.imgOk);
+    const real = errors.filter(e => !/Failed to load resource|ERR_FAILED/.test(e));
+    check(`${name}: консоль без ошибок скрипта`, real.length === 0, real.join(' | '));
     await page.close();
   }
 
