@@ -112,6 +112,10 @@
   .hero__media { position: absolute; inset: 0; z-index: 0; }
   .hero__media img { width: 100%; height: 100%; object-fit: cover; }
 
+  /* морфинг «стройка → готовый двор»: видео вертикальное, поэтому только на телефоне */
+  .hero__video { display: none; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  @media (max-width: 720px) { .hero.is-morph .hero__video { display: block; } }
+
   /* затемнение слева, чтобы текст читался поверх снимка */
   .hero__media::after {
     content: '';
@@ -425,6 +429,7 @@
         <source srcset="img/hero.webp" type="image/webp">
         <img src="img/hero.jpg" alt="" width="1600" height="900" loading="eager">
       </picture>
+      <video class="hero__video" muted playsinline preload="none" data-src="img/hero-morph.mp4" data-poster="img/hero-morph-poster.jpg"></video>
     </div>
     <div class="wrap hero__in">
       <span class="hero__eyebrow">Пушкино · 18 минут до станции</span>
@@ -879,6 +884,32 @@
     nav.addEventListener('click', function (e) {
       if (e.target.tagName === 'A') { nav.classList.remove('on'); burger.setAttribute('aria-expanded', 'false'); }
     });
+  })();
+</script>
+
+<script>
+  // ── Hero-морфинг: стройка → готовый двор ────────────────
+  // Видео грузится только на телефоне: на широком экране вертикальный ролик
+  // пришлось бы сильно обрезать. Один проигрыш, стоп на последнем кадре.
+  // Движение отключено, экономия трафика, автоплей запрещён, файл не загрузился —
+  // остаётся обычная картинка.
+  (function () {
+    var hero = document.querySelector('.hero');
+    var video = hero && hero.querySelector('.hero__video');
+    if (!video) return;
+    var phone = window.matchMedia('(max-width: 720px)').matches;
+    var calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var saveData = navigator.connection && navigator.connection.saveData;
+    if (!phone || calm || saveData) return;
+
+    function fallback() { hero.classList.remove('is-morph'); video.pause(); }
+    video.addEventListener('error', fallback);
+    video.poster = video.dataset.poster;
+    video.src = video.dataset.src;
+    video.preload = 'auto';
+    hero.classList.add('is-morph');
+    var started = video.play();
+    if (started && started.catch) started.catch(fallback);
   })();
 </script>
 
